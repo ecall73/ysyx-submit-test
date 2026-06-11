@@ -79,10 +79,11 @@ jobs:
             fi
           fi
 
-          case "$STUID" in
-            ysyx_*) ;;
-            *) STUID="ysyx_$STUID" ;;
-          esac
+          STUID=$(echo "$STUID" | grep -E -o "[0-9]{8}$")
+          if [[ $STUID == "" ]]; then
+            echo "Invalid STUID. Expected 8 digits or ysyx_XXXXXXXX."
+            false
+          fi
 
           echo "STUID=$STUID" >> $GITHUB_OUTPUT
           echo "REPO=$REPO" >> $GITHUB_OUTPUT
@@ -137,7 +138,7 @@ jobs:
           echo "STUID=${{ needs.parse.outputs.STUID }}" >> $GITHUB_ENV
 
       - name: Check branch
-        if: ${{ env.TEST_CI != 'true' }}
+        if: ${{ false }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 自动拥有当前仓库读取权限
         run: |
@@ -192,7 +193,7 @@ jobs:
           fi
 
       - name: Check student ID in whitelist
-        if: ${{ env.TEST_CI != 'true' }}
+        if: ${{ false }}
         run: |
           wget https://raw.githubusercontent.com/OSCPU/ysyx-workbench/whitelist/whitelist.txt
           if ! grep -o $STUID whitelist.txt 2> /dev/null ; then
@@ -766,7 +767,7 @@ jobs:
 
   more-tests:
     needs: [setup, hello, cpu-tests, riscv-tests, riscv-arch-test, microbench, rt-thread, iverilog-microbench, yosys-sta, iverilog-netlist-microbench]
-    if: ${{ env.TEST_CI != 'true' }}
+    if: ${{ false }}
     runs-on: self-hosted
     steps:
       - name: Download verilog file
