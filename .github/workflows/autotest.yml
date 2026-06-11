@@ -9,6 +9,7 @@ permissions:
 
 env:
   OSS_CAD_SUITE_RELEASE_TAG: 2025-11-24
+  TEST_CI: true
 
 jobs:
   parse:
@@ -92,6 +93,7 @@ jobs:
           echo "STUID=${{ needs.parse.outputs.STUID }}" >> $GITHUB_ENV
 
       - name: Check branch
+        if: ${{ env.TEST_CI != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 自动拥有当前仓库读取权限
         run: |
@@ -146,6 +148,7 @@ jobs:
           fi
 
       - name: Check student ID in whitelist
+        if: ${{ env.TEST_CI != 'true' }}
         run: |
           wget https://raw.githubusercontent.com/OSCPU/ysyx-workbench/whitelist/whitelist.txt
           if ! grep -o $STUID whitelist.txt 2> /dev/null ; then
@@ -718,6 +721,7 @@ jobs:
 
   more-tests:
     needs: [setup, hello, cpu-tests, riscv-tests, riscv-arch-test, microbench, rt-thread, iverilog-microbench, yosys-sta, iverilog-netlist-microbench]
+    if: ${{ env.TEST_CI != 'true' }}
     runs-on: self-hosted
     steps:
       - name: Download verilog file
@@ -729,75 +733,8 @@ jobs:
           VFILE=`basename "${{ needs.setup.outputs.VFILE }}"`
           bash ../../../more-tests.sh `realpath $VFILE`
 
-  push-code:
-    needs: [parse, setup, more-tests]
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write  # 关键：授予写入权限
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Common operations
-        uses: ./.github/actions/common
-        with:
-          YSYX_HOME: ${{ needs.setup.outputs.YSYX_HOME }}
-          MAKEFLAGS: ${{ needs.setup.outputs.MAKEFLAGS }}
-          install-toolchain: 'false'
-
-      - name: Set Git user and email
-        run: |
-          git config --global user.email "ci@ysyx.org"
-          git config --global user.name "ysyx-ci"
-
-      - name: Fetch target branch
-        run: |
-          pwd
-          git remote add local file://$YSYX_HOME
-          git fetch local tmp-ci:tmp-ci
-          git checkout tmp-ci
-          git checkout master .github
-          git reset HEAD .github
-
-      - name: Add info
-        run: |
-          echo "" >> README.md
-          echo "STUID - ysyx_${{ needs.parse.outputs.STUID }}" >> README.md
-          echo "" >> README.md
-          echo "Original repo - ${{ needs.parse.outputs.REPO }}" >> README.md
-          echo "" >> README.md
-          echo "Original branch - ${{ needs.parse.outputs.BRANCH }}" >> README.md
-          git add -f README.md
-          git commit -m "add original info"
-
-      - name: Add exam script
-        run: |
-          mkdir ysyx-ci
-          cd ysyx-ci
-          echo "empty" > init-exam.sh
-          git add -f init-exam.sh
-          git commit -m "add init-exam.sh"
-
-      - name: Add result git tracer
-        run: |
-          cd $YSYX_HOME
-          git log -u tracer-ysyx > tracer.log
-          tar cj tracer.log > tracer.tar.bz2
-          rm tracer.log
-          cd -
-          mv $YSYX_HOME/tracer.tar.bz2 ysyx-ci/
-          git add -f ysyx-ci/tracer.tar.bz2
-          git commit -m "add tracer.tar.bz2"
-
-      - name: Push code
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git push origin HEAD:ysyx_${{ needs.parse.outputs.STUID }}
-
   finish:
-    needs: [parse, push-code]
+    needs: [parse, setup, hello, cpu-tests, riscv-tests, riscv-arch-test, microbench, rt-thread, iverilog-microbench, yosys-sta, iverilog-netlist-microbench]
     runs-on: ubuntu-22.04
     steps:
       - name: Comment the issue
@@ -807,6 +744,7 @@ jobs:
           comment-id: ${{ needs.parse.outputs.COMMENT_ID }}
           body: |
             Finish
+            Test CI mode: whitelist and auto-push are disabled.
           edit-mode: append
 
       - name: Close the issue
@@ -816,7 +754,7 @@ jobs:
 
   error-handler:
     runs-on: ubuntu-22.04
-    needs: [parse, setup, hello, cpu-tests, riscv-tests, riscv-arch-test, microbench, rt-thread, iverilog-microbench, yosys-sta, iverilog-netlist-microbench, more-tests, push-code]
+    needs: [parse, setup, hello, cpu-tests, riscv-tests, riscv-arch-test, microbench, rt-thread, iverilog-microbench, yosys-sta, iverilog-netlist-microbench]
     if: ${{ failure() }}
     steps:
       - name: Comment the issue
