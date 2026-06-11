@@ -3,6 +3,30 @@ name: Auto-test Workflow
 on:
   issues:
     types: [opened, edited]
+  workflow_dispatch:
+    inputs:
+      stuid:
+        description: "Student ID, e.g. 26030082"
+        required: true
+        type: string
+      repo:
+        description: "Target repository URL"
+        required: true
+        type: string
+      branch:
+        description: "Target branch name"
+        required: true
+        type: string
+      comment:
+        description: "Optional note shown in logs"
+        required: false
+        default: "manual dispatch"
+        type: string
+      parallel:
+        description: "Use all CPU cores"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   issues: write
@@ -22,6 +46,7 @@ jobs:
       COMMENT_ID: ${{ steps.comment-id.outputs.COMMENT_ID }}
     steps:
       - name: Print issue details
+        if: ${{ github.event_name == 'issues' }}
         run: |
           echo "🆕 New Issue Created"
           echo "---------------------"
@@ -34,27 +59,45 @@ jobs:
       - name: Parse information
         id: parse
         run: |
-          STUID=$(echo "${{ github.event.issue.body }}" | sed -n -e '3p')
-          REPO=$(echo "${{ github.event.issue.body }}" | sed -n -e '7p')
-          BRANCH=$(echo "${{ github.event.issue.body }}" | sed -n -e '11p')
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            STUID="${{ github.event.inputs.stuid }}"
+            REPO="${{ github.event.inputs.repo }}"
+            BRANCH="${{ github.event.inputs.branch }}"
+            COMMENT="${{ github.event.inputs.comment }}"
+            MAKEJOBS=1
+            if [[ "${{ github.event.inputs.parallel }}" == "true" ]]; then
+              MAKEJOBS=$(nproc)
+            fi
+          else
+            STUID=$(echo "${{ github.event.issue.body }}" | sed -n -e '3p')
+            REPO=$(echo "${{ github.event.issue.body }}" | sed -n -e '7p')
+            BRANCH=$(echo "${{ github.event.issue.body }}" | sed -n -e '11p')
+            COMMENT=$(echo "${{ github.event.issue.body }}" | sed -n -e '15p')
+            MAKEJOBS=1
+            if echo "${{ github.event.issue.body }}" | sed -n -e '19p' | grep '^- \[ \] ' ; then
+              MAKEJOBS=`nproc`
+            fi
+          fi
+
+          case "$STUID" in
+            ysyx_*) ;;
+            *) STUID="ysyx_$STUID" ;;
+          esac
+
           echo "STUID=$STUID" >> $GITHUB_OUTPUT
           echo "REPO=$REPO" >> $GITHUB_OUTPUT
           echo "BRANCH=$BRANCH" >> $GITHUB_OUTPUT
 
           sudo timedatectl set-timezone Asia/Shanghai
           DATE=`date +"%F %T.%N"`
-          COMMENT=$(echo "${{ github.event.issue.body }}" | sed -n -e '15p')
           RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           echo "DATE=$DATE" >> $GITHUB_OUTPUT
           echo "COMMENT=$COMMENT" >> $GITHUB_OUTPUT
           echo "RUN_URL=$RUN_URL" >> $GITHUB_OUTPUT
 
-          MAKEJOBS=1
-          if echo "${{ github.event.issue.body }}" | sed -n -e '19p' | grep '^- \[ \] ' ; then
-            MAKEJOBS=`nproc`
-          fi
           echo "MAKEJOBS=$MAKEJOBS" >> $GITHUB_OUTPUT
       - name: Comment the issue
+        if: ${{ github.event_name == 'issues' }}
         uses: peter-evans/create-or-update-comment@v1
         with:
           issue-number: ${{ github.event.issue.number }}
@@ -63,6 +106,7 @@ jobs:
             Comment - ${{ steps.parse.outputs.COMMENT }}
             Workflow URL - ${{ steps.parse.outputs.RUN_URL }}
       - name: Find Comment
+        if: ${{ github.event_name == 'issues' }}
         uses: peter-evans/find-comment@v3
         id: fc
         with:
@@ -72,7 +116,7 @@ jobs:
       - name: Export comment ID
         id: comment-id
         run: |
-          COMMENT_ID=${{ steps.fc.outputs.comment-id }}
+          COMMENT_ID="${{ steps.fc.outputs.comment-id }}"
           echo "COMMENT_ID=$COMMENT_ID" >> $GITHUB_OUTPUT
 
   setup:
@@ -188,6 +232,7 @@ jobs:
           rm log.txt
 
       - name: Comment the issue
+        if: ${{ github.event_name == 'issues' }}
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ github.event.issue.number }}
@@ -738,6 +783,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Comment the issue
+        if: ${{ github.event_name == 'issues' }}
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ github.event.issue.number }}
@@ -748,9 +794,16 @@ jobs:
           edit-mode: append
 
       - name: Close the issue
+        if: ${{ github.event_name == 'issues' }}
         uses: peter-evans/close-issue@v2
         with:
           issue-number: ${{ github.event.issue.number }}
+
+      - name: Print finish message
+        if: ${{ github.event_name != 'issues' }}
+        run: |
+          echo "Finish"
+          echo "Test CI mode: whitelist and auto-push are disabled."
 
   error-handler:
     runs-on: ubuntu-22.04
@@ -758,6 +811,7 @@ jobs:
     if: ${{ failure() }}
     steps:
       - name: Comment the issue
+        if: ${{ github.event_name == 'issues' }}
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ github.event.issue.number }}
@@ -765,3 +819,8 @@ jobs:
           body: |
             End with errors
           edit-mode: append
+
+      - name: Print error message
+        if: ${{ github.event_name != 'issues' }}
+        run: |
+          echo "End with errors"
